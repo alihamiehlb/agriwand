@@ -48,13 +48,17 @@ if not os.path.exists(UPLOAD_FOLDER):
 
 # Initialize Gemini
 gemini_model = None
-if GEMINI_AVAILABLE and GEMINI_API_KEY:
-    try:
+try:
+    if GEMINI_AVAILABLE and GEMINI_API_KEY:
         genai.configure(api_key=GEMINI_API_KEY)
-        gemini_model = genai.GenerativeModel('gemini-1.5-flash')
-        logger.info("✓ Gemini API initialized")
-    except Exception as e:
-        logger.warning(f"Gemini failed: {e}")
+        # Using the standard identifier for 1.5-flash
+        model_id = 'gemini-1.5-flash'
+        gemini_model = genai.GenerativeModel(model_id)
+        logger.info(f"✓ Gemini API initialized with model: {model_id}")
+    else:
+        logger.warning("Gemini API Key missing or library not available")
+except Exception as e:
+    logger.error(f"Gemini initialization failed: {e}")
 
 # Comprehensive Plant Database
 GLOBAL_PLANTS = {
