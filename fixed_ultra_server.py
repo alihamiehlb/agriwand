@@ -261,8 +261,8 @@ class FixedUltraPlantAnalyzer:
         else:
             return 'Environmental Stress', 0.6
     
-    def analyze_with_gemini_enhanced(self, image_bytes):
-        """Enhanced Gemini analysis with new google-genai SDK"""
+    def analyze_with_gemini_enhanced(self, image_bytes, moisture=None, temp=None, humidity=None):
+        """Enhanced Gemini analysis with sensor data context"""
         if not GEMINI_AVAILABLE or not gemini_client:
             return None
         
@@ -272,8 +272,18 @@ class FixedUltraPlantAnalyzer:
             for category, plants in GLOBAL_PLANTS.items():
                 all_plants.extend(plants)
             
+            # Construct sensor context if available
+            sensor_context = ""
+            if moisture is not None or temp is not None or humidity is not None:
+                sensor_context = "\nLIVE SENSOR DATA CONTEXT:\n"
+                if moisture is not None: sensor_context += f"- Soil Moisture: {moisture:.1f}%\n"
+                if temp is not None: sensor_context += f"- Ambient Temperature: {temp:.1f}°C\n"
+                if humidity is not None: sensor_context += f"- Air Humidity: {humidity:.1f}%\n"
+                sensor_context += "\nTASK: Use these sensor values to distinguish between disease and environmental stress (e.g., wilting from thirst vs. fungal infection).\n"
+
             prompt = f"""
-            EXPERT PLANT PATHOLOGIST - HD Analysis Required
+            EXPERT PLANT PATHOLOGIST - Contextual Analysis Required
+            {sensor_context}
             
             Analyze this plant image with precision:
             1. IDENTIFY PLANT from: {', '.join(all_plants[:20])}...
@@ -324,14 +334,14 @@ class FixedUltraPlantAnalyzer:
             logger.error(f"Enhanced Gemini analysis failed: {e}")
             return None
     
-    def ultra_accurate_analysis(self, image_bytes):
+    def ultra_accurate_analysis(self, image_bytes, moisture=None, temp=None, humidity=None):
         """Main analysis with Gemini as primary and manual algorithms as backup"""
         processed_images, original = self.advanced_preprocessing(image_bytes)
         img_array = np.array(processed_images['enhanced'])
         
-        # 1. Try Gemini analysis FIRST (Highly Accurate)
+        # 1. Try Gemini analysis FIRST (Highly Accurate with Sensor Context)
         try:
-            gemini_result = self.analyze_with_gemini_enhanced(image_bytes)
+            gemini_result = self.analyze_with_gemini_enhanced(image_bytes, moisture, temp, humidity)
             if gemini_result and gemini_result.get('confidence', 0) > 0.6:
                 logger.info(f"✓ Gemini Analysis Success: {gemini_result.get('disease_name')}")
                 return {
@@ -439,9 +449,9 @@ class FixedUltraPlantAnalyzer:
 # Initialize analyzer
 fixed_analyzer = FixedUltraPlantAnalyzer()
 
-def fixed_predict_plant(image_bytes):
-    """Main prediction function with enhanced accuracy"""
-    return fixed_analyzer.ultra_accurate_analysis(image_bytes)
+def fixed_predict_plant(image_bytes, moisture=None, temp=None, humidity=None):
+    """Main prediction function with enriched sensor data"""
+    return fixed_analyzer.ultra_accurate_analysis(image_bytes, moisture, temp, humidity)
 
 def enhance_with_sensors(ai_result, moisture, temp, humidity):
     """Enhance AI results with sensor context for better recommendations"""
@@ -789,13 +799,13 @@ def predict():
         with open(save_path, 'wb') as f:
             f.write(image_bytes)
         
-        # Perform AI analysis
-        result = fixed_predict_plant(image_bytes)
+        # Perform AI analysis with live sensor context
+        result = fixed_predict_plant(image_bytes, soil_moisture, temperature, humidity)
         
-        # Enhance with sensor context if sensor data provided
+        # Further refine with sensor-based expert rules
         if soil_moisture > 0 or temperature > 0 or humidity > 0:
             result = enhance_with_sensors(result, soil_moisture, temperature, humidity)
-            logger.info(f"Enhanced result with {len(result.get('sensor_recommendations', []))} sensor recommendations")
+            logger.info(f"Enhanced result with sensor recommendations")
         
         return jsonify(result), 200
     
