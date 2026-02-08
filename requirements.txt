@@ -3,6 +3,6 @@ flask-cors==4.0.0
 Pillow==10.2.0
 numpy==1.26.3
 opencv-python-headless==4.9.0.80
-google-generativeai==0.3.2
+google-generativeai>=0.7.2
 gunicorn==21.2.0
 python-dotenv==1.0.0
