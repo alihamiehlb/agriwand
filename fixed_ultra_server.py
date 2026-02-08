@@ -333,13 +333,35 @@ class FixedUltraPlantAnalyzer:
             return None
     
     def ultra_accurate_analysis(self, image_bytes):
-        """Main analysis with enhanced tomato mold detection"""
+        """Main analysis with Gemini as primary and manual algorithms as backup"""
         processed_images, original = self.advanced_preprocessing(image_bytes)
-        
-        # Use enhanced image for analysis
         img_array = np.array(processed_images['enhanced'])
         
-        # Try specialized detection first
+        # 1. Try Gemini analysis FIRST (Highly Accurate)
+        try:
+            gemini_result = self.analyze_with_gemini_enhanced(image_bytes)
+            if gemini_result and gemini_result.get('confidence', 0) > 0.6:
+                logger.info(f"✓ Gemini Analysis Success: {gemini_result.get('disease_name')}")
+                return {
+                    'success': True,
+                    'disease': f"{gemini_result.get('plant_species', 'Unknown')} - {gemini_result.get('disease_name', 'Unknown')}",
+                    'confidence': round(gemini_result.get('confidence', 0.8) * 100, 2),
+                    'is_healthy': 'healthy' in gemini_result.get('disease_name', '').lower(),
+                    'plant_type': gemini_result.get('plant_species', 'Unknown'),
+                    'treatment': gemini_result.get('treatment', 'Monitor plant health'),
+                    'prevention': gemini_result.get('prevention', 'Good agricultural practices'),
+                    'severity': gemini_result.get('severity', 'Unknown'),
+                    'model_version': 'Enhanced Gemini AI v1.5',
+                    'detection_method': 'Google Gemini Vision',
+                    'timestamp': datetime.now().isoformat()
+                }
+        except Exception as e:
+            logger.error(f"Gemini AI Error (Possible 404 or Rate Limit): {e}")
+
+        # 2. Fallback to specialized manual detection (Backup)
+        logger.info("Falling back to specialized manual algorithms...")
+        
+        # Try specialized tomato mold detection
         disease, confidence = self.detect_tomato_leaf_mold(img_array)
         if disease and confidence > 0.7:
             return {
@@ -349,10 +371,10 @@ class FixedUltraPlantAnalyzer:
                 'is_healthy': False,
                 'plant_type': 'Tomato',
                 'treatment': 'Increase ventilation, reduce humidity, apply copper-based fungicide',
-                'prevention': 'Ensure good air circulation, water at base of plants, avoid overhead watering',
+                'prevention': 'Ensure good air circulation, water at base of plants',
                 'severity': 'Moderate to Severe',
-                'model_version': 'Enhanced Tomato Mold Detection',
-                'detection_method': 'Specialized Algorithm',
+                'model_version': 'Manual Backup v2.0',
+                'detection_method': 'Specialized CV Algorithm',
                 'timestamp': datetime.now().isoformat()
             }
         
@@ -365,11 +387,11 @@ class FixedUltraPlantAnalyzer:
                 'confidence': round(confidence * 100, 2),
                 'is_healthy': False,
                 'plant_type': 'Tomato',
-                'treatment': 'Remove affected leaves, apply fungicide, ensure proper spacing',
-                'prevention': 'Crop rotation, resistant varieties, proper spacing',
+                'treatment': 'Remove affected leaves, apply fungicide',
+                'prevention': 'Crop rotation, proper spacing',
                 'severity': 'Moderate',
-                'model_version': 'Enhanced Early Blight Detection',
-                'detection_method': 'Specialized Algorithm',
+                'model_version': 'Manual Backup v2.0',
+                'detection_method': 'Specialized CV Algorithm',
                 'timestamp': datetime.now().isoformat()
             }
         
@@ -382,30 +404,29 @@ class FixedUltraPlantAnalyzer:
                 'confidence': round(confidence * 100, 2),
                 'is_healthy': False,
                 'plant_type': 'Unknown',
-                'treatment': 'Apply sulfur fungicide, improve air circulation, remove affected leaves',
-                'prevention': 'Proper spacing, good ventilation, resistant varieties',
+                'treatment': 'Apply sulfur fungicide, improve ventilation',
+                'prevention': 'Proper spacing, resistant varieties',
                 'severity': 'Moderate',
-                'model_version': 'Enhanced Powdery Mildew Detection',
-                'detection_method': 'Specialized Algorithm',
+                'model_version': 'Manual Backup v2.0',
+                'detection_method': 'Specialized CV Algorithm',
                 'timestamp': datetime.now().isoformat()
             }
         
-        # Try Gemini analysis
-        gemini_result = self.analyze_with_gemini_enhanced(image_bytes)
-        if gemini_result:
-            return {
-                'success': True,
-                'disease': f"{gemini_result.get('plant_species', 'Unknown')} - {gemini_result.get('disease_name', 'Unknown')}",
-                'confidence': round(gemini_result.get('confidence', 0.8) * 100, 2),
-                'is_healthy': 'healthy' in gemini_result.get('disease_name', '').lower(),
-                'plant_type': gemini_result.get('plant_species', 'Unknown'),
-                'treatment': gemini_result.get('treatment', 'Monitor plant health'),
-                'prevention': gemini_result.get('prevention', 'Good agricultural practices'),
-                'severity': gemini_result.get('severity', 'Unknown'),
-                'model_version': 'Enhanced Gemini AI',
-                'detection_method': 'Google Gemini Vision',
-                'timestamp': datetime.now().isoformat()
-            }
+        # 3. Final Fallback to general color analysis
+        disease, confidence = self.general_plant_analysis(img_array)
+        return {
+            'success': True,
+            'disease': disease,
+            'confidence': round(confidence * 100, 2),
+            'is_healthy': 'healthy' in disease.lower(),
+            'plant_type': 'Unknown',
+            'treatment': 'Monitor plant health and provide proper care',
+            'prevention': 'Maintain good growing conditions',
+            'severity': 'Unknown',
+            'model_version': 'General Analysis',
+            'detection_method': 'Color Analysis',
+            'timestamp': datetime.now().isoformat()
+        }
         
         # Fallback to general analysis
         disease, confidence = self.general_plant_analysis(img_array)
