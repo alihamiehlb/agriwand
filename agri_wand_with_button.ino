@@ -49,8 +49,8 @@ TFT_eSPI tft = TFT_eSPI();
 WiFiManager wifiManager;
 
 // Server URL (can be configured via WiFiManager)
-String serverURL = "http://192.168.1.14:5000/predict";  // Default local
-// For production: "https://agri-wand-production.up.railway.app/predict"
+String serverURL = "https://web-production-75c3a.up.railway.app/predict";  // Railway cloud
+// For local testing: "http://192.168.1.14:5000/predict"
 
 // Sensor data structure
 struct SensorData {
