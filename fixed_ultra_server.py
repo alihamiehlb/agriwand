@@ -14,6 +14,10 @@ import logging
 from datetime import datetime
 import socket
 import json
+import dotenv
+
+# Load environment variables for local development
+dotenv.load_dotenv()
 
 try:
     import cv2

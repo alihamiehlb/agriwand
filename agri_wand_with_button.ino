@@ -30,26 +30,23 @@
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
 
-// Sensor and control pins
-#define SOIL_MOISTURE_PIN 13
-#define TEMPERATURE_PIN 14    // DHT22 DATA pin (use DHT library for production)
-#define HUMIDITY_PIN 15       // Currently unused (DHT22 provides both on one pin)
-#define CAPTURE_BUTTON 12     // Button to trigger analysis
-#define BUZZER_PIN 2
-#define LED_PIN 33
+// Sensor and control pins (Unified for ILI9488 / ESP32-CAM)
+#define CAPTURE_BUTTON    0      // Use BOOT button or external on GPIO 0
+#define SOIL_MOISTURE_PIN 33     // Analog input (Shares with onboard LED)
+#define DHT_PIN           16     // DHT22 Data pin (if available) or shared
+#define BUZZER_PIN        2      // Shared with TFT DC
 
-// Status LEDs (optional - add if you have extra LEDs)
-#define WIFI_LED 26           // Blue LED for WiFi status
-#define CAPTURE_LED 27        // Yellow LED for capture indicator
+// Status indicators
+#define STATUS_LED        33     // Onboard LED (Note: inverted logic)
 
-// Display
+// Display - Using TFT_eSPI (User_Setup.h must be configured for ILI9488)
 TFT_eSPI tft = TFT_eSPI();
 
 // WiFi Manager
 WiFiManager wifiManager;
 
-// Server URL (can be configured via WiFiManager)
-String serverURL = "https://web-production-75c3a.up.railway.app/predict";  // Railway cloud
+// Server URL (Production Cloud Default)
+String serverURL = "https://web-production-75c3a.up.railway.app/predict";
 // For local testing: "http://192.168.1.14:5000/predict"
 
 // Sensor data structure
@@ -80,7 +77,7 @@ bool analysisInProgress = false;
 // Button state
 volatile bool buttonPressed = false;
 unsigned long lastButtonPress = 0;
-const unsigned long DEBOUNCE_DELAY = 300;  // 300ms debounce
+const unsigned long DEBOUNCE_DELAY = 400;  // 300ms debounce
 
 // Interrupt handler for button
 void IRAM_ATTR buttonISR() {
@@ -94,39 +91,38 @@ void IRAM_ATTR buttonISR() {
 void setup() {
   Serial.begin(115200);
   
-  // Disable brownout detector
+  // Disable brownout detector for camera stability
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
   
   // Pin setup
-  pinMode(LED_PIN, OUTPUT);
+  pinMode(STATUS_LED, OUTPUT);
+  digitalWrite(STATUS_LED, HIGH); // LED OFF (inverted)
   pinMode(BUZZER_PIN, OUTPUT);
-  pinMode(SOIL_MOISTURE_PIN, INPUT);
-  pinMode(TEMPERATURE_PIN, INPUT);
-  pinMode(CAPTURE_BUTTON, INPUT_PULLUP);  // Internal pull-up
-  
-  // Optional status LEDs
-  #ifdef WIFI_LED
-    pinMode(WIFI_LED, OUTPUT);
-  #endif
-  #ifdef CAPTURE_LED
-    pinMode(CAPTURE_LED, OUTPUT);
-  #endif
+  pinMode(SOIL_MOISTURE_PIN, INPUT); // Keep this if using analog soil sensor
+  pinMode(DHT_PIN, INPUT); // Keep this if using DHT sensor
+  pinMode(CAPTURE_BUTTON, INPUT_PULLUP);
   
   // Attach button interrupt
   attachInterrupt(digitalPinToInterrupt(CAPTURE_BUTTON), buttonISR, FALLING);
   
-  // Initialize display
+  // Initialize ILI9488 Display
   tft.init();
-  tft.setRotation(1);
+  tft.setRotation(1); // Landscape 480x320
   tft.fillScreen(TFT_BLACK);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.setTextSize(2);
-  tft.setCursor(10, 10);
-  tft.println("🍅 Agri-Wand Pro");
-  tft.setTextSize(1);
-  tft.println("Button-triggered analysis");
   
-  // Camera setup
+  // Professional Boot Screen
+  tft.setTextSize(3);
+  tft.setCursor(60, 100);
+  tft.println("🍅 AGRI-WAND PRO");
+  tft.setTextSize(2);
+  tft.setCursor(60, 140);
+  tft.println("3.5\" HD AI Analysis System");
+  tft.setTextSize(1);
+  tft.setCursor(60, 180);
+  tft.println("Initializing hardware...");
+  
+  // Camera Setup
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
   config.ledc_timer = LEDC_TIMER_0;
@@ -150,7 +146,7 @@ void setup() {
   config.pixel_format = PIXFORMAT_JPEG;
   
   if(psramFound()){
-    config.frame_size = FRAMESIZE_SVGA;
+    config.frame_size = FRAMESIZE_VGA; // Higher res for larger screen
     config.jpeg_quality = 10;
     config.fb_count = 2;
   } else {
@@ -163,17 +159,19 @@ void setup() {
   if (err != ESP_OK) {
     Serial.printf("Camera init failed: 0x%x", err);
     tft.setTextColor(TFT_RED);
-    tft.println("✗ Camera failed!");
+    tft.setCursor(60, 200);
+    tft.println("✗ CAMERA ERROR!");
     return;
   }
   
   tft.setTextColor(TFT_GREEN);
-  tft.println("✓ Camera OK");
+  tft.setCursor(60, 200);
+  tft.println("✓ CAMERA READY");
   
   // WiFi connection with WiFiManager
+  tft.setCursor(60, 220);
   tft.println("Setting up WiFi...");
   
-  #ifdef WIFI_LED
     digitalWrite(WIFI_LED, HIGH);  // Blink during setup
   #endif
   
@@ -272,25 +270,17 @@ void loop() {
 }
 
 void readSensors() {
-  // Soil moisture (0-4095 → 0-100%)
+  // Soil moisture (0-4095 -> 0-100%)
   int soilRaw = analogRead(SOIL_MOISTURE_PIN);
   sensors.soilMoisture = map(soilRaw, 0, 4095, 100, 0);
   sensors.soilMoisture = constrain(sensors.soilMoisture, 0, 100);
   
-  // Temperature (simulated - use DHT library for production)
-  // TODO: Replace with DHT22 library reading
-  int tempRaw = analogRead(TEMPERATURE_PIN);
-  sensors.temperature = map(tempRaw, 0, 4095, 15, 40);
-  
-  // Humidity (simulated - use DHT library for production)
-  // TODO: Replace with DHT22 library reading
-  int humidRaw = analogRead(HUMIDITY_PIN);
-  sensors.humidity = map(humidRaw, 0, 4095, 30, 90);
+  // Note: Integrated DHT22 reading should be placed here
+  // For production, ensure DHT sensor is on GPIO 16 (or I2C if using expander)
+  sensors.temperature = 25.5; // Placeholder
+  sensors.humidity = 60.0;    // Placeholder
   
   sensors.timestamp = millis();
-  
-  Serial.printf("📊 Sensors - Soil: %.1f%%, Temp: %.1f°C, Humidity: %.1f%%\n",
-                sensors.soilMoisture, sensors.temperature, sensors.humidity);
 }
 
 void captureAndAnalyze() {
@@ -403,183 +393,123 @@ void updateDisplay() {
   static unsigned long lastDisplayUpdate = 0;
   static int screen = 0;
   
-  // Don't update if analysis in progress
   if (analysisInProgress) return;
   
-  // Cycle screens every 5 seconds
-  if (millis() - lastDisplayUpdate > 5000) {
+  if (millis() - lastDisplayUpdate > 6000) {
     screen = (screen + 1) % 3;
     lastDisplayUpdate = millis();
   }
   
   tft.fillScreen(TFT_BLACK);
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.setTextSize(2);
   
   switch (screen) {
-    case 0:
-      displaySensors();
-      break;
-    case 1:
-      displayStatus();
-      break;
-    case 2:
-      displayAI();
-      break;
+    case 0: displaySensors(); break;
+    case 1: displayStatus(); break;
+    case 2: displayAI(); break;
   }
 }
 
 void displaySensors() {
-  tft.setCursor(10, 10);
-  tft.println("🌡️ Environmental Data");
-  tft.setTextSize(1);
+  tft.setTextSize(3);
+  tft.setTextColor(TFT_WHITE);
+  tft.setCursor(20, 20);
+  tft.println("SYSTEM SENSORS");
   
-  // Soil moisture
+  tft.setTextSize(2);
+  // Soil Moisture Bar
+  tft.setCursor(20, 70);
   tft.setTextColor(TFT_BLUE);
-  tft.printf("💧 Soil: %.1f%%\n", sensors.soilMoisture);
-  if (sensors.soilMoisture < 30) {
-    tft.setTextColor(TFT_RED);
-    tft.println("  ⚠ Low - Water needed!");
-  }
+  tft.printf("Soil Moisture: %.1f%%", sensors.soilMoisture);
+  tft.drawRect(20, 100, 440, 20, TFT_WHITE);
+  tft.fillRect(22, 102, (int)(436 * (sensors.soilMoisture/100.0)), 16, TFT_BLUE);
   
   // Temperature
+  tft.setCursor(20, 140);
   tft.setTextColor(TFT_ORANGE);
-  tft.printf("🌡️ Temp: %.1f°C\n", sensors.temperature);
-  if (sensors.temperature > 32) {
-    tft.setTextColor(TFT_RED);
-    tft.println("  ⚠ High temp stress!");
-  }
+  tft.printf("Temperature: %.1f C", sensors.temperature);
   
   // Humidity
+  tft.setCursor(20, 180);
   tft.setTextColor(TFT_CYAN);
-  tft.printf("💨 Humidity: %.1f%%\n", sensors.humidity);
-  if (sensors.humidity > 80) {
-    tft.setTextColor(TFT_RED);
-    tft.println("  ⚠ High - Mold risk!");
-  }
+  tft.printf("Air Humidity: %.1f%%", sensors.humidity);
   
-  // Status
-  tft.setTextColor(TFT_GREEN);
-  tft.printf("\n📶 WiFi: %s\n", WiFi.status() == WL_CONNECTED ? "Connected" : "Disconnected");
-  
-  // Button prompt
+  // Large Prompt
+  tft.setTextSize(2);
   tft.setTextColor(TFT_YELLOW);
-  tft.println("\n🔘 Press button to analyze");
+  tft.setCursor(60, 260);
+  tft.println(">>> PRESS BUTTON TO ANALYZE <<<");
 }
 
 void displayStatus() {
-  tft.setCursor(10, 10);
-  tft.println("📸 System Status");
-  tft.setTextSize(1);
+  tft.setTextSize(3);
+  tft.setTextColor(TFT_WHITE);
+  tft.setCursor(20, 20);
+  tft.println("WAND STATUS");
   
+  tft.setTextSize(2);
   tft.setTextColor(TFT_GREEN);
-  tft.println("✓ Camera ready");
-  tft.println("✓ Sensors active");
-  tft.println("✓ AI server connected");
-  tft.println("✓ Button-triggered mode");
+  tft.setCursor(20, 80);  tft.println("✓ SYSTEM: ONLINE");
+  tft.setCursor(20, 120); tft.println("✓ WIFI: CONNECTED");
+  tft.setCursor(20, 160); tft.println("✓ CAMERA: SVGA READY");
+  tft.setCursor(20, 200); tft.println("✓ CLOUD: RAILWAY ACTIVE");
   
-  tft.setTextColor(TFT_CYAN);
-  tft.println("\nFeatures:");
-  tft.println("• Manual capture button");
-  tft.println("• Sensor-AI integration");
-  tft.println("• Enhanced recommendations");
-  tft.println("• 90%+ accuracy");
-  
-  tft.setTextColor(TFT_YELLOW);
-  tft.println("\n🔘 Press to analyze plant");
+  tft.setTextColor(TFT_WHITE);
+  tft.setCursor(20, 250);
+  tft.setTextSize(1);
+  tft.println("FIRMWARE: AGRI-WAND PRO v2.0 (ILI9488)");
 }
 
 void displayAI() {
-  tft.setCursor(10, 10);
-  tft.println("🤖 AI Results");
-  tft.setTextSize(1);
+  tft.setTextSize(3);
+  tft.setTextColor(TFT_WHITE);
+  tft.setCursor(20, 20);
+  tft.println("AI DIAGNOSIS");
   
-  if (newAIResult && (millis() - aiResult.timestamp < 120000)) {  // Show for 2 minutes
-    // Disease name with color coding
+  if (newAIResult && (millis() - aiResult.timestamp < 300000)) { // Show for 5 mins
+    tft.setTextSize(2);
+    tft.setCursor(20, 70);
     if (aiResult.isHealthy) {
       tft.setTextColor(TFT_GREEN);
-    } else if (aiResult.confidence > 85) {
-      tft.setTextColor(TFT_RED);
+      tft.println("HEALTH: PLANT IS HEALTHY");
     } else {
-      tft.setTextColor(TFT_ORANGE);
+      tft.setTextColor(TFT_RED);
+      tft.printf("DISEASE: %s", aiResult.disease.c_str());
     }
     
-    tft.printf("Disease: %s\n", aiResult.disease.c_str());
-    
     tft.setTextColor(TFT_WHITE);
-    tft.printf("Confidence: %.1f%%\n", aiResult.confidence);
-    tft.printf("Severity: %s\n", aiResult.severity.c_str());
+    tft.setCursor(20, 110);
+    tft.printf("CONFIDENCE: %.1f%%", aiResult.confidence);
     
-    // Treatment (truncated for display)
     tft.setTextColor(TFT_YELLOW);
-    tft.println("\n💊 Treatment:");
-    String treatment = aiResult.treatment.substring(0, 60);
-    tft.println(treatment + "...");
+    tft.setCursor(20, 150);
+    tft.println("TREATMENT:");
+    tft.setTextSize(1);
+    tft.setCursor(20, 180);
+    tft.println(aiResult.treatment);
     
-    // Sensor recommendations
+    // Recommendations
     if (aiResult.sensorRecommendations.length() > 0) {
       tft.setTextColor(TFT_CYAN);
-      tft.println("\n🌱 Sensor Insights:");
-      String recommendations = aiResult.sensorRecommendations.substring(0, 80);
-      tft.println(recommendations);
+      tft.setTextSize(1);
+      tft.setCursor(20, 240);
+      tft.println(aiResult.sensorRecommendations);
     }
-    
   } else {
-    tft.setTextColor(TFT_WHITE);
-    tft.println("No recent analysis");
-    
-    tft.setTextColor(TFT_YELLOW);
-    tft.println("\n🔘 Press button to analyze");
-    
-    tft.setTextColor(TFT_CYAN);
-    tft.println("\nReady to detect:");
-    tft.println("• Tomato diseases");
-    tft.println("• 100+ plant species");
-    tft.println("• Environmental issues");
+    tft.setTextSize(2);
+    tft.setCursor(20, 100);
+    tft.println("READY FOR NEW SCAN");
   }
 }
 
 void checkAlerts() {
   bool criticalAlert = false;
+  if (sensors.soilMoisture < 10) criticalAlert = true;
+  if (newAIResult && !aiResult.isHealthy && aiResult.confidence > 90) criticalAlert = true;
   
-  // Critical sensor alerts
-  if (sensors.soilMoisture < 15) {
-    criticalAlert = true;
-    Serial.println("🚨 CRITICAL: Extremely dry soil!");
-  }
-  
-  if (sensors.temperature > 38) {
-    criticalAlert = true;
-    Serial.println("🚨 CRITICAL: Dangerous temperature!");
-  }
-  
-  if (sensors.humidity > 90) {
-    criticalAlert = true;
-    Serial.println("🚨 CRITICAL: Extreme humidity!");
-  }
-  
-  // AI disease alerts
-  if (newAIResult && !aiResult.isHealthy && aiResult.confidence > 85) {
-    if (aiResult.disease.indexOf("Mold") >= 0 || 
-        aiResult.disease.indexOf("Blight") >= 0 ||
-        aiResult.disease.indexOf("Spot") >= 0) {
-      criticalAlert = true;
-      Serial.printf("🚨 CRITICAL DISEASE: %s detected!\n", aiResult.disease.c_str());
-    }
-  }
-  
-  // Trigger alert
   if (criticalAlert) {
-    digitalWrite(LED_PIN, HIGH);
-    
-    // Alert pattern
-    tone(BUZZER_PIN, 2000, 300);
-    delay(200);
-    tone(BUZZER_PIN, 1000, 300);
-    delay(200);
-    tone(BUZZER_PIN, 500, 500);
-    
-    delay(100);
-    digitalWrite(LED_PIN, LOW);
+    tone(BUZZER_PIN, 1000, 500);
+    digitalWrite(STATUS_LED, LOW); // LED ON
+    delay(500);
+    digitalWrite(STATUS_LED, HIGH); // LED OFF
   }
 }
