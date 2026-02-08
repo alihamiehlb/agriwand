@@ -26,7 +26,7 @@ except ImportError:
     CV2_AVAILABLE = False
 
 try:
-    import google.generativeai as genai
+    from google import genai
     GEMINI_AVAILABLE = True
 except ImportError:
     GEMINI_AVAILABLE = False
@@ -46,17 +46,14 @@ UPLOAD_FOLDER = 'uploads'
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
-# Initialize Gemini
-gemini_model = None
+# Initialize Gemini Client
+gemini_client = None
 try:
     if GEMINI_AVAILABLE and GEMINI_API_KEY:
-        genai.configure(api_key=GEMINI_API_KEY)
-        # Using the standard identifier for 1.5-flash
-        model_id = 'gemini-1.5-flash'
-        gemini_model = genai.GenerativeModel(model_id)
-        logger.info(f"✓ Gemini API initialized with model: {model_id}")
+        gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+        logger.info("✓ Gemini SDK Client initialized (google-genai)")
     else:
-        logger.warning("Gemini API Key missing or library not available")
+        logger.warning("Gemini API Key missing or library not installed")
 except Exception as e:
     logger.error(f"Gemini initialization failed: {e}")
 
@@ -108,9 +105,8 @@ DISEASE_PATTERNS = {
     }
 }
 
-class FixedUltraPlantAnalyzer:
     def __init__(self):
-        self.gemini_available = gemini_model is not None
+        self.gemini_available = GEMINI_AVAILABLE and gemini_client is not None
         self.cv2_available = CV2_AVAILABLE
     
     def advanced_preprocessing(self, image_bytes):
@@ -265,44 +261,27 @@ class FixedUltraPlantAnalyzer:
             return 'Environmental Stress', 0.6
     
     def analyze_with_gemini_enhanced(self, image_bytes):
-        """Enhanced Gemini analysis with better prompts"""
-        if not self.gemini_available:
+        """Enhanced Gemini analysis with new google-genai SDK"""
+        if not GEMINI_AVAILABLE or not gemini_client:
             return None
         
         try:
-            image = Image.open(io.BytesIO(image_bytes))
-            
             # Create comprehensive plant list
             all_plants = []
             for category, plants in GLOBAL_PLANTS.items():
                 all_plants.extend(plants)
             
             prompt = f"""
-            EXPERT PLANT PATHOLOGIST - Enhanced Analysis Required
+            EXPERT PLANT PATHOLOGIST - HD Analysis Required
             
             Analyze this plant image with precision:
-            
             1. IDENTIFY PLANT from: {', '.join(all_plants[:20])}...
-            
             2. DISEASE DETECTION - Look specifically for:
             - TOMATO LEAF MOLD: Yellow upper surface, grayish powder underneath
             - EARLY BLIGHT: Concentric rings on lower leaves  
             - LATE BLIGHT: Water-soaked lesions, white mold
             - POWDERY MILDEW: White powder on surface
             - LEAF SPOT: Circular lesions with halos
-            
-            3. VISUAL ANALYSIS:
-            - Color patterns (yellowing, browning, spots)
-            - Texture (powdery, smooth, rough)
-            - Location on plant
-            - Pattern distribution
-            
-            4. ENVIRONMENTAL FACTORS:
-            - Humidity indicators
-            - Temperature stress signs
-            - Nutrient deficiency patterns
-            
-            CRITICAL: Be especially alert for TOMATO LEAF MOLD - it has very specific visual patterns!
             
             Respond with exact JSON:
             {{
@@ -316,19 +295,27 @@ class FixedUltraPlantAnalyzer:
             }}
             """
             
-            response = gemini_model.generate_content([prompt, image])
+            # Using the new SDK syntax
+            response = gemini_client.models.generate_content(
+                model='gemini-1.5-flash',
+                contents=[
+                    prompt,
+                    genai.types.Part.from_bytes(data=image_bytes, mime_type='image/jpeg')
+                ]
+            )
             
             try:
-                start = response.text.find('{')
-                end = response.text.rfind('}') + 1
+                # The new SDK response structure: response.text or response.parsed
+                text = response.text
+                start = text.find('{')
+                end = text.rfind('}') + 1
                 if start != -1 and end != -1:
-                    result = json.loads(response.text[start:end])
-                    # Ensure confidence is reasonable
+                    result = json.loads(text[start:end])
                     if result.get('confidence', 0) > 0.95:
                         result['confidence'] = 0.95
                     return result
             except:
-                pass
+                logger.warning("Failed to parse Gemini JSON response")
             
             return None
             
@@ -820,9 +807,10 @@ def health():
     return jsonify({
         'status': 'healthy',
         'model_loaded': True,
-        'model_version': 'Fixed Ultra-Accurate v5.0',
+        'model_version': 'Fixed Ultra-Accurate v6.0',
         'gemini_available': fixed_analyzer.gemini_available,
         'cv2_available': fixed_analyzer.cv2_available,
+        'sdk': 'google-genai (2026 Edition)',
         'special_features': ['Enhanced Tomato Mold Detection', 'Early Blight Detection', 'Powdery Mildew Detection'],
         'plant_support': 'Global - All vegetables + Lebanese herbs',
         'accuracy_target': '90%+ for tomato diseases'
@@ -830,7 +818,7 @@ def health():
 
 if __name__ == '__main__':
     logger.info("Starting Fixed Ultra-Accurate Agricultural AI Wand Server")
-    logger.info(f"Gemini Available: {fixed_analyzer.gemini_available}")
+    logger.info(f"Gemini SDK (google-genai) Available: {fixed_analyzer.gemini_available}")
     logger.info(f"OpenCV Available: {fixed_analyzer.cv2_available}")
     logger.info("Server starting on http://0.0.0.0:5000")
     app.run(host='0.0.0.0', port=5000, debug=False)
