@@ -296,9 +296,9 @@ class FixedUltraPlantAnalyzer:
             }}
             """
             
-            # Using the new SDK syntax
+            # Using the new SDK syntax with the confirmed 2026 'latest' alias
             response = gemini_client.models.generate_content(
-                model='gemini-1.5-flash',
+                model='gemini-flash-latest',
                 contents=[
                     prompt,
                     genai.types.Part.from_bytes(data=image_bytes, mime_type='image/jpeg')
