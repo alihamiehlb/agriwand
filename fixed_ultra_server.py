@@ -105,6 +105,7 @@ DISEASE_PATTERNS = {
     }
 }
 
+class FixedUltraPlantAnalyzer:
     def __init__(self):
         self.gemini_available = GEMINI_AVAILABLE and gemini_client is not None
         self.cv2_available = CV2_AVAILABLE
